@@ -1,0 +1,542 @@
+% Load the original image
+clear all;
+close all;
+clc;
+
+originalImage = imread("C:\Users\acs\OneDrive\Desktop\dataset\test_image_1.jpg");
+
+figure;  
+subplot(2,1,1);
+imshow(originalImage);
+igray=rgb2gray(originalImage);
+subplot(2,1,2);
+imshow(igray); 
+
+figure; 
+imhist(igray);
+
+% Perform the DWT using the Haar wavelet
+[LL, HL, LH, HH] = dwt2(igray, 'haar');
+figure;
+% Display the results
+subplot(3, 3, 1), imshow(LL,[]), title('LL Image');
+subplot(3, 3, 2), imshow(HL,[]), title('HL Image');
+subplot(3, 3, 3), imshow(LH,[]), title('LH Image');
+subplot(3, 3, 4), imshow(HH,[]), title('HH Image');
+
+% Adjust the subplot layout
+sgtitle('Wavelet Transformed Images');
+
+% Assuming HL, LH, and HH are the input high-frequency images
+% Normalize the high-frequency images
+normalizedHL = (HL - mean(HL(:))) / std(HL(:));
+normalizedLH = (LH - mean(LH(:))) / std(LH(:));
+normalizedHH = (HH - mean(HH(:))) / std(HH(:));
+
+subplot(3, 3, 5), imshow(normalizedHL), title('Normalized HL Image');
+subplot(3, 3, 6), imshow(normalizedLH), title('Normalized LH Image');
+subplot(3, 3, 7), imshow(normalizedHH), title('Normalized HH Image');
+
+% Set the threshold for segmentation
+threshold = 1; % You can experiment with different values
+
+% Create the detail information mask
+I_detail_HF = normalizedHL > threshold | normalizedLH > threshold | normalizedHH > threshold;
+
+% Display the detail information mask
+subplot(3, 3, 8);
+imshow(I_detail_HF);
+title('Detail Information Mask (I_{detail})');
+
+% Initialize the DWH histogram
+DWH = zeros(256, 1);
+I_detail = I_detail_HF;
+figure;
+h_LL=imhist(uint8(LL)+1);
+plot(h_LL)
+title('initialize the dwh histogram');
+
+
+%%
+I_detail = resize(I_detail,size(igray));
+I_detail=double(I_detail);
+
+if ~isequal(class(I_detail), class(igray))
+    % Convert data type
+    % Example: image2 = im2uint8(image2); % Convert image2 to uint8
+end
+
+% Perform element-wise multiplication
+%result = image1 .* image2;
+hDW=double(I_detail).* double(igray);
+imhist(hDW);
+
+
+%%
+
+% Assuming LL is a matrix of size MxN
+[M, N] = size(LL);
+
+% Initialize hDW matrix with zeros
+hDW = zeros(M, N);
+
+% Assuming Idetail is also MxN matrix
+Idetail = I_detail;
+
+% Loop through each element of LL and up
+% 9date hDW
+for x = 1:M
+    for y = 1:N
+        hDW(x, y) = (LL(x, y) + 1) * Idetail(x, y);
+    end
+end
+%%
+
+% Calculate min and max intensity values of LL
+min_LL = min(LL(:));
+max_LL = max(LL(:));
+
+% Ensure min_LL and max_LL are integers
+min_LL = round(min_LL);
+max_LL = round(max_LL);
+
+% Generate Detail Weighted Histogram (DWH)
+% Generate Detail Weighted Histogram (DWH)
+h_DWH = zeros(1, 256);
+for i = 1:size(LL, 1)
+    for j = 1:size(LL, 2)
+        % Adjust intensity to start from 1 and ensure it's within range
+        intensity = round(LL(i, j) - min_LL + 1);  % Round to the nearest integer
+        intensity = max(1, min(256, intensity));  % Ensure it's within range [1, 256]
+        % Debugging Output
+        disp(['i: ', num2str(i), ', j: ', num2str(j), ', intensity: ', num2str(intensity)]);
+        % Accumulate intensity value from Idetail
+        h_DWH(intensity) = h_DWH(intensity) + double(Idetail(i, j));
+    end
+end
+
+
+% Normalize the DWH to obtain the PDF
+PDF_DWH = h_DWH / sum(h_DWH);
+disp(['min_LL: ', num2str(min_LL), ', max_LL: ', num2str(max_LL)]);
+
+% Calculate the cumulative distribution function (CDF) of the PDF
+CDF_DWH = cumsum(PDF_DWH);
+disp(['Size of CDF_DWH: ', num2str(size(CDF_DWH))]);
+
+% Calculate the transformation function for DWHE
+% Calculate the transformation function for DWHE
+num_levels = round(max_LL - min_LL + 1);  % Ensure num_levels is an integer
+T = zeros(num_levels, 1);
+
+for k = min_LL:max_LL
+    if k >= min_LL && k <= max_LL && k <= 256
+        range = min_LL:k;
+        % Calculate the sum of the PDF_DWH values for the specified range
+        sum_PDF_DWH_range = sum(PDF_DWH(range));
+        % Ensure the sum is not zero to avoid division by zero
+        if sum_PDF_DWH_range ~= 0
+            % Calculate the weighted sum of the CDF_DWH values for the specified range
+            weighted_sum_CDF_DWH_range = sum(CDF_DWH(range) .* (1:length(range)));
+            % Update T with the calculated transformation value
+            T(k - min_LL + 1) = ((max_LL - min_LL) / num_levels) * (weighted_sum_CDF_DWH_range / sum_PDF_DWH_range);
+        end
+    end
+end
+
+
+
+% Calculate min and max intensity values of LL
+min_LL = min(LL(:));
+max_LL = max(LL(:));
+
+% Ensure min_LL and max_LL are integers
+min_LL = round(min_LL);
+max_LL = round(max_LL);
+
+% Clip LL values to ensure they fall within the range defined by min_LL and max_LL
+LL_clipped = max(min(LL, max_LL), min_LL);
+
+% Check if LL_clipped values are within the expected range
+if any(LL_clipped(:) < min_LL) || any(LL_clipped(:) > max_LL)
+    error('LL_clipped values are outside the expected range.');
+end
+
+% Apply DWHE to LL_clipped using valid indices
+LL_DWHE = LL_clipped; 
+
+% Initialize LL_DWHE with LL_clipped
+LL_DWHE = zeros(size(LL));
+
+% Loop through each pixel and apply transformation function T
+for i = 1:size(LL, 1)
+    for j = 1:size(LL, 2)
+        % Calculate the index for T
+        index = round(LL_clipped(i, j) - min_LL + 1);
+        % Ensure index is within the valid range
+        index = min(max(index, 1), numel(T));
+        % Apply transformation function
+        LL_DWHE(i, j) = T(index);
+    end
+end
+
+
+
+
+
+% Display the result of DWHE
+figure;
+subplot(1, 2, 1);
+imshow(LL, []);
+title('Original LL Image');
+subplot(1, 2, 2);
+imshow(uint8(LL_DWHE), []);
+title('DWHE Applied LL Image');
+
+% Display comparison of HE and DWHE
+%figure;
+%subplot(1, 2, 1);
+%imhist(LL);
+%title('Histogram of Original LL Image');
+%subplot(1, 2, 2);
+%imhist(uint8(LL_DWHE));
+%title('Histogram of DWHE Applied LL Image');
+
+% Assuming LL and LL_DWHE are already defined in your workspace
+
+% Display comparison of HE and DWHE
+figure;
+
+% Display histogram of original LL image
+subplot(1, 2, 1);
+imhist(uint8(LL)); % Ensure LL is in uint8 format
+title('Histogram of Original LL Image');
+
+
+% Normalize LL_DWHE to the range [0, 255]
+LL_DWHE_uint8 = uint8(255 * mat2gray(LL_DWHE));
+
+% Display histogram of DWHE applied LL image
+subplot(1, 2, 2);
+imhist(LL_DWHE_uint8);
+title('Histogram of DWHE Applied LL Image');
+
+
+
+
+
+
+%%
+
+% Apply TEF to each high-frequency image (HL, LH, HH)
+alpha = 1; % Set the value of alpha, you can experiment with different values
+enhanced_HL = texture_enhancement_function(normalizedHL, alpha);
+enhanced_LH = texture_enhancement_function(normalizedLH, alpha);
+enhanced_HH = texture_enhancement_function(normalizedHH, alpha);
+
+% Visualize the results
+figure;
+subplot(4, 2, 1), imshow(normalizedHL), title('Normalized HL Image');
+subplot(4, 2, 2), imshow(enhanced_HL), title('Enhanced HL Image');
+subplot(4, 2, 3), imshow(normalizedLH), title('Normalized LH Image');
+subplot(4, 2, 4), imshow(enhanced_LH), title('Enhanced LH Image');
+subplot(4, 2, 5), imshow(normalizedHH), title('Normalized HH Image');
+subplot(4, 2, 6), imshow(enhanced_HH), title('Enhanced HH Image');
+
+
+
+
+
+%%
+
+% Adaptive Weighting Fusion of the Original and Enhanced Images
+
+% Traditional Fusion Equation (Equation 14)
+% L_output = 1 * I_original + 12 * (1 - m)
+% Load the original image
+I_original = imread("C:\Users\acs\OneDrive\Desktop\dataset\test_image_1.jpg");
+
+% Convert the original image to grayscale if necessary
+I_original_gray = rgb2gray(I_original);
+
+% Calculate the minimum and maximum intensity values of the original image
+min_intensity = min(I_original_gray(:));
+max_intensity = max(I_original_gray(:));
+
+% Convert min_intensity and max_intensity to double
+min_intensity = double(min_intensity);
+max_intensity = double(max_intensity);
+
+% Adaptive Weighting Fusion (Equation 15)
+W = (double(I_original_gray) - min_intensity) / (max_intensity - min_intensity);
+
+% Load the reconstructed image or generate it using some image processing technique
+% For demonstration purposes, let's assume the reconstructed image is the same as the original image
+I_reconstructed = I_original_gray;
+
+% Adjusted Fusion Equation (Equation 16)
+L_output = double(I_original_gray) .* W + double(I_reconstructed) .* (ones(size(I_original_gray)) - W);
+
+% Display the reconstructed image
+figure;
+imshow(uint8(L_output));
+title('Reconstructed Image');
+
+% Save the reconstructed image to a file if necessary
+imwrite(uint8(L_output), 'reconstructed_image.jpg');
+
+
+%%
+% Load original and reconstructed images (replace placeholders with actual images)
+I_original = imread("C:\Users\acs\OneDrive\Desktop\dataset\test_image_1.jpg");
+I_reconstructed = imread("C:\Users\acs\OneDrive\Desktop\dataset\reconst1.jpg");
+
+% Convert images to grayscale if necessary
+I_original_gray = rgb2gray(I_original);
+I_reconstructed_gray = im2gray(I_reconstructed);
+
+% Calculate minimum and maximum intensity values of original image
+min_intensity = min(I_original_gray(:));
+max_intensity = max(I_original_gray(:));
+
+% Convert min_intensity to the same data type as double(I_original_gray)
+min_intensity = double(min_intensity);
+max_intensity = double(max_intensity);
+
+% Adaptive Weighting Fusion (Equation 15)
+W = (double(I_original_gray) - min_intensity) / (max_intensity - min_intensity);
+
+% Ensure I_reconstructed_gray is of the same data type as I_original_gray
+I_reconstructed_gray = cast(I_reconstructed_gray, class(I_original_gray));
+
+% Convert W to the same data type as I_original_gray
+W = cast(W, class(I_original_gray));
+
+% Calculate (ones(size(I_original_gray)) - W) with the same data type as I_original_gray
+ones_same_type = ones(size(I_original_gray), class(I_original_gray));
+L_output = I_original_gray .* W + I_reconstructed_gray .* (ones_same_type - W);
+
+
+% Display the output image
+figure;
+imshow(uint8(L_output));   
+title('Adaptive Weighting Fusion Result');  
+
+
+%%
+% Load the required images
+originalImage = imread("C:\Users\acs\OneDrive\Desktop\dataset\test_image_1.jpg");
+
+% Open the .fig file and extract the image
+fig = openfig("C:\Users\acs\OneDrive\Desktop\dataset\reconst4.fig", 'invisible');
+ax = findobj(fig, 'type', 'axes');
+reconstructedImage = findobj(ax, 'type', 'image');
+reconstructedImage = reconstructedImage.CData;
+close(fig); % Close the figure after extracting the image
+
+% Convert images to grayscale if they are not already
+originalImageGray = im2gray(originalImage);
+reconstructedImageGray = im2gray(reconstructedImage);
+
+% Convert images to double for calculations
+originalImageGray = double(originalImageGray);
+reconstructedImageGray = double(reconstructedImageGray);
+
+% Calculate PSNR
+psnrValue = psnr(reconstructedImageGray, originalImageGray);
+
+% Calculate MAE
+maeValue = mean(abs(reconstructedImageGray(:) - originalImageGray(:)));
+
+% Calculate DE (Discrete Entropy)
+entropyValue = entropy(reconstructedImageGray);
+
+% Calculate SSIM
+ssimValue = ssim(reconstructedImageGray, originalImageGray);
+
+% Calculate FSIM (Feature Similarity Index)
+fsimValue = FeatureSIM(reconstructedImageGray, originalImageGray); % Requires FSIM function
+
+% Calculate EME (Enhancement Measure Estimation)
+emeValue = EME(reconstructedImageGray); % Requires EME function
+
+% Calculate VSI (Visual Saliency-based Index)
+vsiValue = VSI(reconstructedImageGray, originalImageGray); % Requires VSI function
+
+% Calculate GMSD (Gradient Magnitude Similarity Deviation)
+gmsdValue = GMSD(reconstructedImageGray, originalImageGray); % Requires GMSD function
+
+% Display the results
+fprintf('PSNR: %.4f dB\n', psnrValue);
+fprintf('MAE: %.4f\n', maeValue);
+fprintf('Discrete Entropy: %.4f\n', entropyValue);
+fprintf('SSIM: %.4f\n', ssimValue);
+fprintf('FSIM: %.4f\n', fsimValue);
+fprintf('EME: %.4f\n', emeValue);
+fprintf('VSI: %.4f\n', vsiValue);
+fprintf('GMSD: %.4f\n', gmsdValue);
+
+
+% Define FSIM function
+function fsimValue = FeatureSIM(img1, img2)
+    % Convert images to double precision
+    img1 = double(img1);
+    img2 = double(img2);
+
+    % Parameters
+    T1 = 0.85; % Threshold for the gradient magnitude
+    T2 = 160;  % Threshold for phase congruency
+
+    % Compute the gradient magnitude
+    [Ix1, Iy1] = gradient(img1);
+    [Ix2, Iy2] = gradient(img2);
+    GM1 = sqrt(Ix1.^2 + Iy1.^2);
+    GM2 = sqrt(Ix2.^2 + Iy2.^2);
+
+    % Compute the phase congruency
+    PC1 = phasecong3(img1);
+    PC2 = phasecong3(img2);
+
+    % Compute similarity maps
+    S_G = (2 * GM1 .* GM2 + T1) ./ (GM1.^2 + GM2.^2 + T1);
+    S_PC = (2 * PC1 .* PC2 + T2) ./ (PC1.^2 + PC2.^2 + T2);
+
+    % Compute the FSIM map
+    FSIM_map = S_G .* S_PC;
+
+    % Compute the final FSIM value
+    fsimValue = sum(FSIM_map(:)) / numel(FSIM_map);
+end
+
+% Helper function for phase congruency
+function PC = phasecong3(im)
+    % Parameters for phase congruency
+    nscale = 4; % Number of scales
+    norient = 6; % Number of orientations
+    minWaveLength = 3; % Minimum wavelength
+    mult = 2.1; % Multiplier between successive filters
+    sigmaOnf = 0.55; % Ratio of the standard deviation of the Gaussian describing the log Gabor filter's transfer function
+    k = 2.0; % No. of standard deviations of the noise energy beyond the mean at which we set the noise threshold point
+    
+    % Compute the phase congruency using monogenic signal (simplified)
+    PC = zeros(size(im));
+    for o = 1:norient
+        angl = (o - 1) * pi / norient; % Calculate orientation
+        filt = logGabor(im, angl, nscale, minWaveLength, mult, sigmaOnf);
+        PC = PC + abs(filt);
+    end
+    PC = PC / norient; % Normalize
+end
+
+function logGabor = logGabor(im, angle, nscale, minWaveLength, mult, sigmaOnf)
+    [rows, cols] = size(im);
+    [x, y] = meshgrid(-cols/2:cols/2-1, -rows/2:rows/2-1);
+    radius = sqrt(x.^2 + y.^2); % Radius from center
+    theta = atan2(-y, x); % Orientation
+    
+    % Construct log Gabor filters in the frequency domain
+    logGabor = zeros(rows, cols);
+    for s = 1:nscale
+        wavelength = minWaveLength * mult^(s - 1);
+        fo = 1.0 / wavelength; % Centre frequency of filter
+        
+        logGaborFilter = exp((-(log(radius / fo)).^2) / (2 * log(sigmaOnf)^2));
+        logGaborFilter(radius == 0) = 0; % Set the value at the 0 frequency point of the filter
+        
+        % Apply orientation
+        angleDiff = abs(angle - theta);
+        angleDiff(angleDiff > pi) = 2 * pi - angleDiff(angleDiff > pi);
+        spread = exp((-angleDiff.^2) / (2 * (pi / nscale)^2));
+        
+        logGabor = logGabor + logGaborFilter .* spread;
+    end
+end
+
+
+
+
+% Define EME function
+
+
+
+% Define EME function
+function emeValue = EME(img)
+    % Parameters
+    blockSize = 8; % Block size for EME calculation
+
+    % Calculate the number of blocks
+    [M, N] = size(img);
+    numBlocksM = floor(M / blockSize);
+    numBlocksN = floor(N / blockSize);
+
+    % Initialize EME
+    EME = 0;
+
+    % Loop through each block
+    for i = 1:numBlocksM
+        for j = 1:numBlocksN
+            % Extract the current block
+            block = img((i-1)*blockSize+1:i*blockSize, (j-1)*blockSize+1:j*blockSize);
+            % Calculate the min and max intensity values in the block
+            minVal = min(block(:));
+            maxVal = max(block(:));
+            % Avoid division by zero
+            if minVal > 0
+                % Calculate EME for the current block
+                EME = EME + 20 * log10(maxVal / minVal);
+            end
+        end
+    end
+
+    % Calculate the average EME
+    emeValue = EME / (numBlocksM * numBlocksN);
+end
+
+% Define VSI function
+function vsiValue = VSI(img1, img2)
+    % Convert images to double precision
+    img1 = double(img1);
+    img2 = double(img2);
+
+    % Parameters
+    alpha = 0.1;
+    beta = 0.1;
+    sigma = 1.5;
+
+    % Compute saliency maps
+    saliencyMap1 = imgradient(img1, 'sobel');
+    saliencyMap2 = imgradient(img2, 'sobel');
+
+    % Compute the VS index
+    V = (2 * saliencyMap1 .* saliencyMap2 + alpha) ./ (saliencyMap1.^2 + saliencyMap2.^2 + alpha);
+    G = (2 * img1 .* img2 + beta) ./ (img1.^2 + img2.^2 + beta);
+
+    % Gaussian filter
+    h = fspecial('gaussian', [11, 11], sigma);
+    V_filtered = imfilter(V, h);
+    G_filtered = imfilter(G, h);
+
+    % Compute VSI
+    vsiValue = sum(sum(V_filtered .* G_filtered)) / sum(sum(G_filtered));
+end
+
+% Define GMSD function
+function gmsdValue = GMSD(img1, img2)
+    % Convert images to double precision
+    img1 = double(img1);
+    img2 = double(img2);
+
+    % Compute gradient magnitudes
+    [Ix1, Iy1] = gradient(img1);
+    [Ix2, Iy2] = gradient(img2);
+    GM1 = sqrt(Ix1.^2 + Iy1.^2);
+    GM2 = sqrt(Ix2.^2 + Iy2.^2);
+
+    % Compute gradient magnitude similarity
+    GM_min = min(GM1, GM2);
+    GM_max = max(GM1, GM2);
+    GMS = GM_min ./ (GM_max + 1e-5);
+
+    % Compute GMSD
+    gmsdValue = std(GMS(:));
+end
